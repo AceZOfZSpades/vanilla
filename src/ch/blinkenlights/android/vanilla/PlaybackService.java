@@ -631,6 +631,27 @@ public final class PlaybackService extends Service
 		applyReplayGain(mp);
 	}
 
+	/**
+	 * Checks if we need to update the play/skipcounter for this action
+	 *
+	 * @param delta One of the SongTimeline.SHIFT_*
+	 */
+	private void preparePlayCountsUpdate(int delta) {
+		if (isPlaying()) {
+			double pctPlayed = (double)getPosition()/getDuration();
+			int action = 0;
+
+			if (delta == SongTimeline.SHIFT_KEEP_SONG && pctPlayed >= 0.8) {
+				action = 1; // song is playing again and had more than 0.8pct -> count this
+			} else if(delta == SongTimeline.SHIFT_NEXT_SONG && pctPlayed <= 0.5) {
+				action = -1;
+			}
+
+			if (action != 0) {
+				mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_UPDATE_PLAYCOUNTS, action, 0, mCurrentSong), 800);
+			}
+		}
+	}
 
 	/**
 	 * Make sure that the current ReplayGain volume matches
@@ -970,7 +991,10 @@ public final class PlaybackService extends Service
 				if (mNotificationMode != NEVER)
 					startForeground(NOTIFICATION_ID, createNotification(mCurrentSong, mState, mNotificationMode));
 
-				mAudioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+				final int result = mAudioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+				if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+					unsetFlag(FLAG_PLAYING);
+				}
 
 				mHandler.removeMessages(MSG_ENTER_SLEEP_STATE);
 				try {
@@ -1365,7 +1389,7 @@ public final class PlaybackService extends Service
 	{
 
 		// Count this song as played
-		mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_UPDATE_PLAYCOUNTS, mCurrentSong), 2500);
+		mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_UPDATE_PLAYCOUNTS, 1, 0, mCurrentSong), 800);
 
 		if (finishAction(mState) == SongTimeline.FINISH_REPEAT_CURRENT) {
 			setCurrentSong(0);
@@ -1544,7 +1568,8 @@ public final class PlaybackService extends Service
 			break;
 		case MSG_UPDATE_PLAYCOUNTS:
 			Song song = (Song)message.obj;
-			mPlayCounts.countSong(song);
+			boolean played = message.arg1 == 1;
+			mPlayCounts.countSong(song, played);
 			// Update the playcounts playlist in ~20% of all cases if enabled
 			if (mAutoPlPlaycounts > 0 && Math.random() > 0.8) {
 				ContentResolver resolver = getContentResolver();
@@ -1675,6 +1700,7 @@ public final class PlaybackService extends Service
 	 */
 	public Song shiftCurrentSong(int delta)
 	{
+		preparePlayCountsUpdate(delta);
 		Song song = setCurrentSong(delta);
 		userActionTriggered();
 		return song;
@@ -1689,11 +1715,6 @@ public final class PlaybackService extends Service
 		int delta = SongTimeline.SHIFT_PREVIOUS_SONG;
 		if(isPlaying() && getPosition() > REWIND_AFTER_PLAYED_MS && getDuration() > REWIND_AFTER_PLAYED_MS*2) {
 			delta = SongTimeline.SHIFT_KEEP_SONG;
-			// Count song as played if >= 80% were done
-			double pctPlayed = (double)getPosition()/getDuration();
-			if (pctPlayed >= 0.8) {
-				mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_UPDATE_PLAYCOUNTS, mCurrentSong), 2500);
-			}
 		}
 		return shiftCurrentSong(delta);
 	}
@@ -2122,9 +2143,10 @@ public final class PlaybackService extends Service
 		case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
 		case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
 			synchronized (mStateLock) {
-				mTransientAudioLoss = (mState & FLAG_PLAYING) != 0;
-				if(mTransientAudioLoss) {
-					if (type == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+				if((mState & FLAG_PLAYING) != 0) {
+					mTransientAudioLoss = true;
+					
+					if(type == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
 						setFlag(FLAG_DUCKING);
 					} else {
 						mForceNotificationVisible = true;

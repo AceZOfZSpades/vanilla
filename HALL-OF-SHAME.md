@@ -15,6 +15,16 @@ This list is a collection of such GPL violating versions published on the Google
 
 ## Blunt violations
 
+## Boom Music
+* https://play.google.com/store/apps/details?id=com.oapps.boom
+* Full screen ads
+* Does not provide modified source, just links to this repo
+
+### MyMusic
+* https://play.google.com/store/apps/details?id=com.appcode.mymusic
+* Removed 'About' section in App
+* Full screen ads
+
 ### MP3 Music Delta Pro
 * https://play.google.com/store/apps/details?id=com.extra.DeltaMusic
 * Removed 'About' section in App
